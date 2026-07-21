@@ -110,7 +110,7 @@ do
   vim.o.number = true
   -- You can also add relative line numbers, to help with jumping.
   --  Experiment for yourself to see if you like it!
-  -- vim.o.relativenumber = true
+  vim.o.relativenumber = true
 
   -- Enable mouse mode, can be useful for resizing splits for example!
   vim.o.mouse = 'a'
@@ -406,7 +406,7 @@ do
   -- If a nerd font is available, load the icons module for pretty icons in various plugins.
   if vim.g.have_nerd_font then
     require('mini.icons').setup()
-    -- Used for backwards compatibility with plugins that require `nvim-web-devicons` (e.g. telescope.nvim)
+    -- Used for backwards compatibility with plugins that require `nvim-web-devicons` (e.g. telescope.nvim)telescope
     MiniIcons.mock_nvim_web_devicons()
   end
 
@@ -483,31 +483,96 @@ do
     gh 'nvim-lua/plenary.nvim',
     gh 'nvim-telescope/telescope.nvim',
     gh 'nvim-telescope/telescope-ui-select.nvim',
+    gh 'nvim-telescope/telescope-file-browser.nvim',
+    -- Sidebar Plugins
+    gh 'nvim-tree/nvim-web-devicons',
+    gh 'MunifTanjim/nui.nvim',
+    gh 'nvim-neo-tree/neo-tree.nvim',
   }
   if vim.fn.executable 'make' == 1 then table.insert(telescope_plugins, gh 'nvim-telescope/telescope-fzf-native.nvim') end
 
   -- NOTE: You can install multiple plugins at once
   vim.pack.add(telescope_plugins)
 
+  -- Setup Neo-tree (Sidebar Explorer)
+  require('neo-tree').setup({
+    window = {
+      position = "left",
+      width = 30,
+    },
+    filesystem = {
+      filtered_items = {
+        visible = true, -- Show hidden files (like .gitignore) by default
+      }
+    }
+  })
+
   -- See `:help telescope` and `:help telescope.setup()`
+  local fb_actions = require("telescope._extensions.file_browser.actions")
+  local telescope_actions = require("telescope.actions")
+  local telescope_action_state = require("telescope.actions.state")
+
   require('telescope').setup {
-    -- You can put your default mappings / updates / etc. in here
-    --  All the info you're looking for is in `:help telescope.setup()`
-    --
-    -- defaults = {
-    --   mappings = {
-    --     i = { ['<c-enter>'] = 'to_fuzzy_refine' },
-    --   },
-    -- },
-    -- pickers = {}
     extensions = {
       ['ui-select'] = { require('telescope.themes').get_dropdown() },
+      ['file_browser'] = {
+        theme = "ivy",
+        hijack_netrw = true,
+        hidden = true,
+        -- Bind file operations inside the Telescope browser window
+        mappings = {
+          ["i"] = {
+            ["<C-r>"] = fb_actions.rename,  -- Ctrl + r to Rename
+            ["<C-d>"] = fb_actions.remove,  -- Ctrl + d to Delete
+            ["<C-CR>"] = function(prompt_bufnr)
+              local current_picker = telescope_action_state.get_current_picker(prompt_bufnr)
+              local finder = current_picker.finder
+              local selection = telescope_action_state.get_selected_entry()
+
+              -- Determine the target directory path
+              local target_dir = selection.path
+              if selection.stat and selection.stat.type ~= "directory" then
+                target_dir = vim.fs.dirname(selection.path)
+              end
+
+              -- Change Neovim's global working directory
+              vim.cmd("cd " .. target_dir)
+              print("Changed directory to: " .. target_dir)
+
+              -- Refresh the file browser view to the new root
+              finder.path = target_dir
+              current_picker:refresh(finder, { reset_prompt = true })
+            end,
+          },
+          ["n"] = {
+            ["r"] = fb_actions.rename,      -- r to Rename in normal mode
+            ["d"] = fb_actions.remove,      -- d to Delete in normal mode
+            ["<C-CR>"] = function(prompt_bufnr)
+              local current_picker = telescope_action_state.get_current_picker(prompt_bufnr)
+              local finder = current_picker.finder
+              local selection = telescope_action_state.get_selected_entry()
+
+              local target_dir = selection.path
+              if selection.stat and selection.stat.type ~= "directory" then
+                target_dir = vim.fs.dirname(selection.path)
+              end
+
+              vim.cmd("cd " .. target_dir)
+              print("Changed directory to: " .. target_dir)
+
+              finder.path = target_dir
+              current_picker:refresh(finder, { reset_prompt = true })
+            end,
+          },
+        },
+      },
     },
   }
 
   -- Enable Telescope extensions if they are installed
   pcall(require('telescope').load_extension, 'fzf')
   pcall(require('telescope').load_extension, 'ui-select')
+  pcall(require('telescope').load_extension, 'file_browser')
 
   -- See `:help telescope.builtin`
   local builtin = require 'telescope.builtin'
@@ -517,70 +582,50 @@ do
   vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
   vim.keymap.set({ 'n', 'v' }, '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
   vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
-  vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
   vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
   vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
   vim.keymap.set('n', '<leader>sc', builtin.commands, { desc = '[S]earch [C]ommands' })
   vim.keymap.set('n', '<leader><leader>', builtin.buffers, { desc = '[ ] Find existing buffers' })
 
+  -- Shifted Diagnostics to Space + s + x to make room for Directory Search
+  vim.keymap.set('n', '<leader>sx', builtin.diagnostics, { desc = '[S]earch [X] Diagnostics' })
+
+  -- Space + s + d / D for File Browser Explorer
+  vim.keymap.set('n', '<leader>sD', ':Telescope file_browser<CR>', { silent = true, desc = '[S]earch [D]irectory (Root)' })
+  vim.keymap.set('n', '<leader>sd', ':Telescope file_browser path=%:p:h select_buffer=true<CR>', { silent = true, desc = '[S]earch [D]irectory (Current File)' })
+
+  -- Toggle Sidebar View (Neo-Tree)
+  vim.keymap.set('n', '<leader>e', ':Neotree toggle<CR>', { silent = true, desc = 'Toggle Sidebar [E]xplorer' })
+
   -- Add Telescope-based LSP pickers when an LSP attaches to a buffer.
-  -- If you later switch picker plugins, this is where to update these mappings.
   vim.api.nvim_create_autocmd('LspAttach', {
     group = vim.api.nvim_create_augroup('telescope-lsp-attach', { clear = true }),
     callback = function(event)
       local buf = event.buf
-
-      -- Find references for the word under your cursor.
       vim.keymap.set('n', 'grr', builtin.lsp_references, { buffer = buf, desc = '[G]oto [R]eferences' })
-
-      -- Jump to the implementation of the word under your cursor.
-      -- Useful when your language has ways of declaring types without an actual implementation.
       vim.keymap.set('n', 'gri', builtin.lsp_implementations, { buffer = buf, desc = '[G]oto [I]mplementation' })
-
-      -- Jump to the definition of the word under your cursor.
-      -- This is where a variable was first declared, or where a function is defined, etc.
-      -- To jump back, press <C-t>.
       vim.keymap.set('n', 'grd', builtin.lsp_definitions, { buffer = buf, desc = '[G]oto [D]efinition' })
-
-      -- Fuzzy find all the symbols in your current document.
-      -- Symbols are things like variables, functions, types, etc.
       vim.keymap.set('n', 'gO', builtin.lsp_document_symbols, { buffer = buf, desc = 'Open Document Symbols' })
-
-      -- Fuzzy find all the symbols in your current workspace.
-      -- Similar to document symbols, except searches over your entire project.
       vim.keymap.set('n', 'gW', builtin.lsp_dynamic_workspace_symbols, { buffer = buf, desc = 'Open Workspace Symbols' })
-
-      -- Jump to the type of the word under your cursor.
-      -- Useful when you're not sure what type a variable is and you want to see
-      -- the definition of its *type*, not where it was *defined*.
       vim.keymap.set('n', 'grt', builtin.lsp_type_definitions, { buffer = buf, desc = '[G]oto [T]ype Definition' })
     end,
   })
 
   -- Override default behavior and theme when searching
   vim.keymap.set('n', '<leader>/', function()
-    -- You can pass additional configuration to Telescope to change the theme, layout, etc.
     builtin.current_buffer_fuzzy_find(require('telescope.themes').get_dropdown {
       winblend = 10,
       previewer = false,
     })
   end, { desc = '[/] Fuzzily search in current buffer' })
 
-  -- It's also possible to pass additional configuration options.
-  --  See `:help telescope.builtin.live_grep()` for information about particular keys
-  vim.keymap.set(
-    'n',
-    '<leader>s/',
-    function()
-      builtin.live_grep {
-        grep_open_files = true,
-        prompt_title = 'Live Grep in Open Files',
-      }
-    end,
-    { desc = '[S]earch [/] in Open Files' }
-  )
+  vim.keymap.set('n', '<leader>s/', function()
+    builtin.live_grep {
+      grep_open_files = true,
+      prompt_title = 'Live Grep in Open Files',
+    }
+  end, { desc = '[S]earch [/] in Open Files' })
 
-  -- Shortcut for searching your Neovim configuration files
   vim.keymap.set('n', '<leader>sn', function() builtin.find_files { cwd = vim.fn.stdpath 'config', follow = true } end, { desc = '[S]earch [N]eovim files' })
 end
 
@@ -647,6 +692,8 @@ do
       -- WARN: This is not Goto Definition, this is Goto Declaration.
       --  For example, in C this would take you to the header.
       map('grD', vim.lsp.buf.declaration, '[G]oto [D]eclaration')
+
+      map('gd', vim.lsp.buf.definition, '[G]oto [d]efinition')
 
       -- The following two autocommands are used to highlight references of the
       -- word under your cursor when your cursor rests there for a little while.
@@ -966,12 +1013,12 @@ do
   --  Here are some example plugins that I've included in the Kickstart repository.
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
-  -- require 'kickstart.plugins.debug'
+  require 'kickstart.plugins.debug'
   -- require 'kickstart.plugins.indent_line'
   -- require 'kickstart.plugins.lint'
   -- require 'kickstart.plugins.autopairs'
   -- require 'kickstart.plugins.neo-tree'
-  -- require 'kickstart.plugins.gitsigns' -- adds gitsigns recommended keymaps
+  require 'kickstart.plugins.gitsigns' -- adds gitsigns recommended keymaps
 
   -- NOTE: You can add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --

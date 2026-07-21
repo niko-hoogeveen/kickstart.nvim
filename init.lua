@@ -503,7 +503,12 @@ do
     filesystem = {
       filtered_items = {
         visible = true, -- Show hidden files (like .gitignore) by default
-      }
+      },
+      window = {
+        mappings = {
+          ["<C-CR>"] = "open_tabnew",
+        },
+      },
     }
   })
 
